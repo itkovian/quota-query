@@ -24,6 +24,12 @@ executable quota-query-exe
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
+                     , aeson
+                     , http-client
+                     , text
+                     , time
+                     , vector
+                     , bloodhound
                      , quota-query
   default-language:    Haskell2010
 
