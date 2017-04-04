@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module Main
     ( main
     ) where
@@ -11,15 +12,42 @@ import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad          (mzero)
 import           Data.Aeson
 import           Data.List.NonEmpty     (NonEmpty (..))
-import           Data.Text              (Text)
+import qualified Data.Map.Strict        as M
+import           Data.Maybe
+import           Data.Text              (Text, concat, isPrefixOf, pack)
 import           Data.Time.Calendar     (Day (..))
-import           Data.Time.Clock        (UTCTime (..), secondsToDiffTime)
+import           Data.Time.Clock        (UTCTime (..), secondsToDiffTime, getCurrentTime, addUTCTime)
 import qualified Data.Vector            as V
 import           Database.V5.Bloodhound
+import           Database.V5.Bloodhound.Types
 import           GHC.Generics           (Generic)
 import           Network.HTTP.Client    (defaultManagerSettings, responseBody)
 import           System.Console.CmdArgs
+import           Text.Printf
 -------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+{- HPCUgent-specific mappings -}
+hpcugentFilesetPrefixes = M.fromList
+    [ ("personal", "vsc")
+    , ("vo", "gvo")
+    ]
+
+hpcugentDeviceMappings :: M.Map Text Text
+hpcugentDeviceMappings = M.fromList
+    [ ("vulpixhome", "VSC_HOME")                    -- device/filesystem holding home
+    , ("vulpixdata", "VSC_DATA")                    -- device/filesystem holding long term data
+    , ("scratchdelcatty", "VSC_SCRATCH_DELCATTY")   -- device/filesystem holding shared scratch on delcatty
+    , ("scratchphanpy", "VSC_SCRATCH_PHANPY")       -- device/filesystem holding shared scratch on phanpy
+    ]
+
+determineUnit :: Integer -> (Double, Text)
+determineUnit v = d (fromInteger v) ["KiB", "MiB", "GiB", "TiB"]
+  where d :: Double -> [Text] -> (Double, Text)
+        d v [] = (v, "TiB")
+        d v (u:us)
+            | v < 1024 = (v, u)
+            | otherwise = d (v / 1024.0) us
 
 
 -------------------------------------------------------------------------------
@@ -43,7 +71,16 @@ data Quota = Quota
   , filesHard  :: Integer
   , filesDoubt :: Integer
   , filesGrace :: Text
-  } deriving (Eq, Generic, Show)
+  } deriving (Eq, Generic)
+
+instance Show Quota where
+    show q =
+        let voSuffix = if isPrefixOf "gvo" (fileset q) then Data.Text.concat ["_VO (", fileset q, ")"] else ""
+            deviceName = Data.Text.concat [fromJust $ M.lookup (filesystem q) hpcugentDeviceMappings, voSuffix]
+            (usage, usageUnit) = determineUnit (blockUsage q)
+            (softLimit, softLimitUnit) = determineUnit (blockSoft q)
+            (hardLimit, hardLimitUnit) = determineUnit (blockHard q)
+        in printf "%s: used %.2f %s (%d%%) quota %.2f %s (%.2f %s hard limit)" deviceName usage usageUnit (if (blockUsage q) == 0 then 0 else floor $ 100 * (fromInteger $ blockUsage q) / (fromInteger $ blockSoft q) :: Integer) softLimit softLimitUnit hardLimit hardLimitUnit
 
 -------------------------------------------------------------------------------
 instance ToJSON Quota where
@@ -92,9 +129,9 @@ user = User
 constructQuery :: Options -> Query
 constructQuery _ = QueryBoolQuery BoolQuery
     { boolQueryMustMatch =
-        [ TermQuery (Term "quota.filesystem" "scratchdelcatty") Nothing
-        , TermQuery (Term "quota.kind" "FILESET") Nothing
-        , TermQuery (Term "quota.fileset" "gvo00003") Nothing
+        [ --TermQuery (Term "quota.filesystem" "vulpixdata") Nothing
+         TermQuery (Term "quota.kind" "FILESET") Nothing
+        --, TermQuery (Term "quota.fileset" "gvo00003") Nothing
         ]
     , boolQueryFilter = []
     , boolQueryMustNotMatch = []
@@ -104,25 +141,55 @@ constructQuery _ = QueryBoolQuery BoolQuery
     , boolQueryDisableCoord = Nothing
     }
 
+showQuotaQueryUSR :: String -> IO Query
+showQuotaQueryUSR v = do
+    now <- getCurrentTime
+    let vscID = pack v
+        timeLimit = RangeDateGte (GreaterThanEqD $ addUTCTime (negate 3600) now)
+    return $ QueryBoolQuery $ BoolQuery
+        { boolQueryMustMatch =
+            [ TermQuery (Term "quota.entity" vscID) Nothing
+            , QueryRangeQuery $ mkRangeQuery (FieldName "@timestamp") timeLimit
+            ]
+        , boolQueryFilter = []
+        , boolQueryMustNotMatch = [ QueryMatchQuery $ mkMatchQuery (FieldName "quota.kind") (QueryString "GRP") ]
+        , boolQueryShouldMatch = []
+        , boolQueryMinimumShouldMatch = Nothing
+        , boolQueryBoost = Nothing
+        , boolQueryDisableCoord = Nothing
+        }
 ------------------------------------------------------------------------------y
+{-
+
+# modes
+
+- show_quota
+    - for a user: shows all the (latest) usage
+
+
+-}
 main :: IO ()
 main = do
-  opts <- cmdArgs user
+    opts <- cmdArgs user
 
-  let query = constructQuery opts
+    -- determine which query we need to run that matches the provided mode and options
+    query <- showQuotaQueryUSR "vsc40075"
 
-  runBH' $ do
-    -- do a search
-    let query = constructQuery opts
-    let search = mkSearch (Just query) Nothing
-    response <- searchByIndex testIndex search -- :: BH IO (Either EsError (SearchResult [Quota]))
+    qs <- runBH' $ do
+        -- do a search
+        let search = mkSearch (Just query) Nothing
+        response <- searchByIndex testIndex search -- :: BH IO (Either EsError (SearchResult [Quota]))
 
-    let result = decode (responseBody response) :: Maybe (SearchResult SourceEntry)
+        let result = decode (responseBody response) :: Maybe (SearchResult SourceEntry)
 
-    liftIO $ putStrLn $ show result
+        liftIO $ case result of
+            Just r -> return $ Just . map quota . catMaybes . map hitSource . hits . searchHits $ r
+            Nothing -> return Nothing
 
-    return ()
-  return ()
+    case qs of
+        Nothing -> print "No results found"
+        Just qs -> putStrLn $ unlines $ map show qs
+
   where
     testServer = (Server "http://localhost:9200")
     runBH' = withBH defaultManagerSettings testServer

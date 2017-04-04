@@ -26,6 +26,7 @@ executable quota-query-exe
   build-depends:       base
                      , aeson
                      , bloodhound
+                     , containers
                      , cmdargs
                      , http-client
                      , quota-query
