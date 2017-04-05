@@ -25,6 +25,7 @@ import           Network.HTTP.Client    (defaultManagerSettings, responseBody)
 import           System.Console.CmdArgs
 import           Text.Printf
 
+import           Query
 import           Quota
 -------------------------------------------------------------------------------
 
@@ -58,38 +59,6 @@ user = User
   , storage_filesystem = def &= help "Filesystem (GPFS device) for which we seek usage information"
   } &= help "Usage information of users"
 
-constructQuery :: Options -> Query
-constructQuery _ = QueryBoolQuery BoolQuery
-    { boolQueryMustMatch =
-        [ --TermQuery (Term "quota.filesystem" "vulpixdata") Nothing
-         TermQuery (Term "quota.kind" "FILESET") Nothing
-        --, TermQuery (Term "quota.fileset" "gvo00003") Nothing
-        ]
-    , boolQueryFilter = []
-    , boolQueryMustNotMatch = []
-    , boolQueryShouldMatch = []
-    , boolQueryMinimumShouldMatch = Nothing
-    , boolQueryBoost = Nothing
-    , boolQueryDisableCoord = Nothing
-    }
-
-showQuotaQueryUSR :: String -> IO Query
-showQuotaQueryUSR v = do
-    now <- getCurrentTime
-    let vscID = pack v
-        timeLimit = RangeDateGte (GreaterThanEqD $ addUTCTime (negate 3600) now)
-    return $ QueryBoolQuery $ BoolQuery
-        { boolQueryMustMatch =
-            [ TermQuery (Term "quota.entity" vscID) Nothing
-            , QueryRangeQuery $ mkRangeQuery (FieldName "@timestamp") timeLimit
-            ]
-        , boolQueryFilter = []
-        , boolQueryMustNotMatch = [ QueryMatchQuery $ mkMatchQuery (FieldName "quota.kind") (QueryString "GRP") ]
-        , boolQueryShouldMatch = []
-        , boolQueryMinimumShouldMatch = Nothing
-        , boolQueryBoost = Nothing
-        , boolQueryDisableCoord = Nothing
-        }
 ------------------------------------------------------------------------------y
 {-
 

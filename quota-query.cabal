@@ -5,34 +5,37 @@ version:             0.1.0.0
 homepage:            https://github.com/itkovian/quota-query#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Andy Georges
-maintainer:          itkovian@gmail.com
+author:              Andy Georges <itkovian@gmail.com>
+maintainer:          Andy Georges <itkovian@gmail.com>
 copyright:           MIT
 category:            value
 build-type:          Simple
 extra-source-files:  README.md
-                   , src/Quota.hs
 cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
   exposed-modules:     Lib
+                     , Query
                      , Quota
   build-depends:       base >= 4.7 && < 5
                      , aeson
+                     , bloodhound
+                     , cmdargs
                      , containers
                      , text
+                     , time
   default-language:    Haskell2010
 
-executable quota-query-exe
+executable quota-query
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -O2 -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , aeson
                      , bloodhound
-                     , containers
                      , cmdargs
+                     , containers
                      , http-client
                      , quota-query
                      , text
