@@ -82,3 +82,6 @@ instance FromJSON Quota where
       <*> o .: "files_doubt"
       <*> o .: "files_expired"
   parseJSON _ = mzero
+
+-- see also for more generoc parsing: https://github.com/shapr/tmuxmarta/blob/master/src/Lib.hs#L55
+--  where opts = defaultOptions { fieldLabelModifier = map toLower . drop 1}

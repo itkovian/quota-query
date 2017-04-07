@@ -26,7 +26,10 @@ constructQuery = QueryBoolQuery BoolQuery
     , boolQueryDisableCoord = Nothing
     }
 
-showQuotaQueryUSR :: String -> IO Query
+-- showQuotaQueryUSR generates a query to retrieve the information regarding USR quota and usage.
+--
+showQuotaQueryUSR :: String        -- the VSC ID of the user for whom quota information is desired
+                  -> IO Query      -- the resulting query
 showQuotaQueryUSR v = do
     now <- getCurrentTime
     let vscID = pack v
